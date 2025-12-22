@@ -1,0 +1,9 @@
+streamlit
+pandas
+requests
+beautifulsoup4
+lxml
+python-dateutil
+transformers
+torch
+altair
