@@ -81,7 +81,7 @@ def main():
     # Filter reviews to the selected month (and year=2023)
     filtered = df[(df["date"].dt.year == 2023) & (df["date"].dt.month == chosen_month)].copy()
 
-    MAX_REVIEWS = 30
+    MAX_REVIEWS = 10
     filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS)
 
     st.write(f"Reviews in **{chosen_label}**: **{len(filtered)}**")
@@ -102,7 +102,7 @@ def main():
 
     # Batch predictions for speed
     texts = filtered["text"].fillna("").astype(str).tolist()
-    preds = model(texts, batch_size=4, truncation=True)
+    preds = model(texts, batch_size=2, truncation=True)
 
 
     filtered["sentiment"] = [p["label"] for p in preds]
