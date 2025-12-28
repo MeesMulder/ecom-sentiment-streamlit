@@ -81,9 +81,6 @@ def main():
     # Filter reviews to the selected month (and year=2023)
     filtered = df[(df["date"].dt.year == 2023) & (df["date"].dt.month == chosen_month)].copy()
 
-    MAX_REVIEWS = 4
-    filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS)
-
     st.write(f"Reviews in **{chosen_label}**: **{len(filtered)}**")
 
     if filtered.empty:
@@ -92,9 +89,43 @@ def main():
 
     run_sa = st.button("Run sentiment analysis for this month")
 
+    run_sa = st.button("Run sentiment analysis for this month")
     if not run_sa:
         st.info("Click the button to run sentiment analysis (saves memory on cloud).")
         st.stop()
+
+    # Hard cap to avoid time/memory spikes on Render
+    MAX_REVIEWS = 10
+    filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS)
+
+    st.success(f"Running sentiment on {len(filtered)} reviews (capped at {MAX_REVIEWS}).")
+
+    with st.spinner("Loading model (first time can take a while on Render)..."):
+        from transformers import pipeline
+        import torch
+        torch.set_num_threads(1)
+        model = pipeline(
+            "sentiment-analysis",
+            model="distilbert-base-uncased-finetuned-sst-2-english",
+            device=-1,
+        )
+
+    st.success("Model loaded ✅ Now predicting...")
+
+    texts = filtered["text"].fillna("").astype(str).tolist()
+
+    with st.spinner("Predicting sentiment..."):
+        preds = model(texts, batch_size=2, truncation=True)
+
+    st.success("Prediction done ✅")
+
+    filtered["sentiment"] = [p["label"] for p in preds]
+    filtered["confidence"] = [float(p["score"]) for p in preds]
+
+    # Free memory
+    del model
+    import gc
+    gc.collect()
 
 
     # Sentiment analysis
@@ -102,14 +133,7 @@ def main():
 
     # Batch predictions for speed
     texts = filtered["text"].fillna("").astype(str).tolist()
-    preds = model(texts, batch_size=1, truncation=True)
-
-
-    filtered["sentiment"] = [p["label"] for p in preds]
-    filtered["confidence"] = [float(p["score"]) for p in preds]
-
-    
-
+    preds = model(texts, batch_size=2, truncation=True)
 
     # Display filtered reviews table
     show_cols = ["date_iso", "rating", "text", "sentiment", "confidence"]
