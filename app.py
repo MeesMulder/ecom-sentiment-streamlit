@@ -16,10 +16,17 @@ def load_data(path: str) -> dict:
         return json.load(f)
 
 
+
+
 @st.cache_resource
 def load_sentiment_model():
-    # You can swap model if you want, but this is the classic SST-2 fine-tuned DistilBERT
-    return pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+    return pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        device=-1,
+    )
+
+
 
 
 def month_key_to_label(m: int) -> str:
@@ -74,21 +81,35 @@ def main():
     # Filter reviews to the selected month (and year=2023)
     filtered = df[(df["date"].dt.year == 2023) & (df["date"].dt.month == chosen_month)].copy()
 
+    MAX_REVIEWS = 30
+    filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS)
+
     st.write(f"Reviews in **{chosen_label}**: **{len(filtered)}**")
 
     if filtered.empty:
         st.info("No reviews in this month. Pick another month.")
         return
 
+    run_sa = st.button("Run sentiment analysis for this month")
+
+    if not run_sa:
+        st.info("Click the button to run sentiment analysis (saves memory on cloud).")
+        st.stop()
+
+
     # Sentiment analysis
     model = load_sentiment_model()
 
     # Batch predictions for speed
     texts = filtered["text"].fillna("").astype(str).tolist()
-    preds = model(texts, batch_size=16, truncation=True)
+    preds = model(texts, batch_size=4, truncation=True)
+
 
     filtered["sentiment"] = [p["label"] for p in preds]
     filtered["confidence"] = [float(p["score"]) for p in preds]
+
+    
+
 
     # Display filtered reviews table
     show_cols = ["date_iso", "rating", "text", "sentiment", "confidence"]
