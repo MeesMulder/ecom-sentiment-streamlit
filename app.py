@@ -16,6 +16,18 @@ def load_data(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+@st.cache_resource
+def get_model():
+    from transformers import pipeline
+    import torch
+    torch.set_num_threads(1)
+    return pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        device=-1,
+    )
+
+
 
 def month_key_to_label(m: int) -> str:
     return datetime(2023, m, 1).strftime("%b 2023")
@@ -74,27 +86,20 @@ def main():
         st.stop()
 
     # Hard cap to avoid time/memory spikes on Render
-    MAX_REVIEWS = 10
+    MAX_REVIEWS = 5
     filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS).copy()
     st.success(f"Running sentiment on {len(filtered)} reviews (capped at {MAX_REVIEWS}).")
 
-    with st.spinner("Loading model (first time can take a while on Render)..."):
-        from transformers import pipeline
-        import torch
+    with st.spinner("Loading model (first run per deploy)..."):
+    model = get_model()
 
-        torch.set_num_threads(1)
-        model = pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1,
-        )
 
     st.success("Model loaded ✅ Now predicting...")
 
     texts = filtered["text"].fillna("").astype(str).tolist()
 
     with st.spinner("Predicting sentiment..."):
-        preds = model(texts, batch_size=2, truncation=True)
+        preds = model(texts, batch_size=1, truncation=True)
 
     st.success("Prediction done ✅")
 
