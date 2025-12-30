@@ -91,7 +91,7 @@ def main():
     st.success(f"Running sentiment on {len(filtered)} reviews (capped at {MAX_REVIEWS}).")
 
     with st.spinner("Loading model (first run per deploy)..."):
-    model = get_model()
+        model = get_model()
 
 
     st.success("Model loaded ✅ Now predicting...")
