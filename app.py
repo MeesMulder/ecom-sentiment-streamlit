@@ -1,12 +1,13 @@
 import json
 from datetime import datetime
+import gc
+
 import pandas as pd
 import streamlit as st
 import altair as alt
-from transformers import pipeline
+
 
 st.set_page_config(page_title="E-commerce Sentiment Monitor (2023)", layout="wide")
-
 DATA_PATH = "data/scraped_data.json"
 
 
@@ -14,19 +15,6 @@ DATA_PATH = "data/scraped_data.json"
 def load_data(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-
-
-@st.cache_resource
-def load_sentiment_model():
-    return pipeline(
-        "sentiment-analysis",
-        model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=-1,
-    )
-
-
 
 
 def month_key_to_label(m: int) -> str:
@@ -37,9 +25,7 @@ def main():
     st.title("E-commerce Sentiment Monitor (2023)")
     st.caption("Scraped from web-scraping.dev • Reviews filtered by month • Sentiment via Hugging Face Transformers")
 
-    # Load scraped dataset
     data = load_data(DATA_PATH)
-
     section = st.sidebar.radio("Navigation", ["Products", "Testimonials", "Reviews"], index=2)
 
     if section == "Products":
@@ -66,43 +52,36 @@ def main():
         st.warning("No reviews found in data file. Re-run scrape_data.py.")
         return
 
-    # Ensure date parsing
-    # date_iso should already exist, but we'll be defensive
     if "date_iso" not in df.columns:
         df["date_iso"] = None
 
     df["date"] = pd.to_datetime(df["date_iso"], errors="coerce")
 
-    # Month selector for 2023
     month_labels = [month_key_to_label(m) for m in range(1, 13)]
     chosen_label = st.select_slider("Select a month in 2023", options=month_labels, value="May 2023")
     chosen_month = datetime.strptime(chosen_label, "%b %Y").month
 
-    # Filter reviews to the selected month (and year=2023)
     filtered = df[(df["date"].dt.year == 2023) & (df["date"].dt.month == chosen_month)].copy()
-
     st.write(f"Reviews in **{chosen_label}**: **{len(filtered)}**")
 
     if filtered.empty:
         st.info("No reviews in this month. Pick another month.")
         return
 
-    run_sa = st.button("Run sentiment analysis for this month")
-
-    run_sa = st.button("Run sentiment analysis for this month")
+    run_sa = st.button("Run sentiment analysis for this month", key="run_sa")
     if not run_sa:
-        st.info("Click the button to run sentiment analysis (saves memory on cloud).")
+        st.info("Click the button to run sentiment analysis (reduces memory use on cloud).")
         st.stop()
 
     # Hard cap to avoid time/memory spikes on Render
     MAX_REVIEWS = 10
-    filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS)
-
+    filtered = filtered.sort_values("date_iso").head(MAX_REVIEWS).copy()
     st.success(f"Running sentiment on {len(filtered)} reviews (capped at {MAX_REVIEWS}).")
 
     with st.spinner("Loading model (first time can take a while on Render)..."):
         from transformers import pipeline
         import torch
+
         torch.set_num_threads(1)
         model = pipeline(
             "sentiment-analysis",
@@ -122,18 +101,9 @@ def main():
     filtered["sentiment"] = [p["label"] for p in preds]
     filtered["confidence"] = [float(p["score"]) for p in preds]
 
-    # Free memory
+    # Free memory (important on small cloud instances)
     del model
-    import gc
     gc.collect()
-
-
-    # Sentiment analysis
-    model = load_sentiment_model()
-
-    # Batch predictions for speed
-    texts = filtered["text"].fillna("").astype(str).tolist()
-    preds = model(texts, batch_size=2, truncation=True)
 
     # Display filtered reviews table
     show_cols = ["date_iso", "rating", "text", "sentiment", "confidence"]
@@ -150,10 +120,13 @@ def main():
         .reset_index()
     )
 
-    # Make sure both labels exist for consistent chart
+    # Ensure both labels exist for consistent chart
     for lab in ["POSITIVE", "NEGATIVE"]:
         if lab not in summary["sentiment"].tolist():
-            summary = pd.concat([summary, pd.DataFrame([{"sentiment": lab, "count": 0, "avg_confidence": 0.0}])], ignore_index=True)
+            summary = pd.concat(
+                [summary, pd.DataFrame([{"sentiment": lab, "count": 0, "avg_confidence": 0.0}])],
+                ignore_index=True,
+            )
 
     summary["avg_confidence"] = summary["avg_confidence"].fillna(0.0)
 
